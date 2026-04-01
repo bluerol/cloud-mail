@@ -19,6 +19,11 @@ async refresh(c) {
    settingRow.resendTokens = {};
  }
  c.set('setting', settingRow);
+
+ if (c.env.kv) {
+   await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
+ }
+
  return settingRow;
 },
 
@@ -28,11 +33,15 @@ async refresh(c) {
 			return c.get('setting')
 		}
 
-		const setting = await c.env.kv.get(KvConst.SETTING, { type: 'json' });
+		let setting = null;
 
-		if (!setting) {
-			throw new BizError('数据库未初始化 Database not initialized.');
-		}
+if (c.env.kv) {
+ setting = await c.env.kv.get(KvConst.SETTING, { type: 'json' });
+}
+
+if (!setting) {
+ throw new BizError('数据库未初始化 Database not initialized.');
+}
 
 		let domainList = c.env.domain;
 
