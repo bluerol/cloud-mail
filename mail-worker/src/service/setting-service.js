@@ -11,12 +11,16 @@ import verifyRecordService from './verify-record-service';
 
 const settingService = {
 
-	async refresh(c) {
-		const settingRow = await orm(c).select().from(setting).get();
-		settingRow.resendTokens = JSON.parse(settingRow.resendTokens);
-		c.set('setting', settingRow);
-		await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
-	},
+async refresh(c) {
+ const settingRow = await orm(c).select().from(setting).get();
+ try {
+   settingRow.resendTokens = JSON.parse(settingRow.resendTokens || '{}');
+ } catch (e) {
+   settingRow.resendTokens = {};
+ }
+ c.set('setting', settingRow);
+ return settingRow;
+},
 
 	async query(c) {
 
