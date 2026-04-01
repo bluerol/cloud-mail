@@ -11,229 +11,229 @@ import verifyRecordService from './verify-record-service';
 
 const settingService = {
 
-async refresh(c) {
- const settingRow = await orm(c).select().from(setting).get();
- try {
-   settingRow.resendTokens = JSON.parse(settingRow.resendTokens || '{}');
- } catch (e) {
-   settingRow.resendTokens = {};
- }
- c.set('setting', settingRow);
+  async refresh(c) {
+    const settingRow = await orm(c).select().from(setting).get();
 
- if (c.env.kv) {
-   await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
- }
+    try {
+      settingRow.resendTokens = JSON.parse(settingRow.resendTokens || '{}');
+    } catch (e) {
+      settingRow.resendTokens = {};
+    }
 
- return settingRow;
-},
+    c.set('setting', settingRow);
 
-	async query(c) {
+    if (c.env.kv && typeof c.env.kv.put === 'function') {
+      await c.env.kv.put(KvConst.SETTING, JSON.stringify(settingRow));
+    }
 
-		if (c.get?.('setting')) {
-			return c.get('setting')
-		}
+    return settingRow;
+  },
 
-		let setting = null;
+  async query(c) {
+    if (c.get?.('setting')) {
+      return c.get('setting')
+    }
 
-if (c.env.kv) {
- setting = await c.env.kv.get(KvConst.SETTING, { type: 'json' });
-}
+    let cachedSetting = null;
 
-if (!setting) {
- throw new BizError('数据库未初始化 Database not initialized.');
-}
+    if (c.env.kv && typeof c.env.kv.get === 'function') {
+      cachedSetting = await c.env.kv.get(KvConst.SETTING, { type: 'json' });
+    }
 
-		let domainList = c.env.domain;
+    if (!cachedSetting) {
+      const settingRow = await orm(c).select().from(setting).get();
 
-		if (typeof domainList === 'string') {
-			try {
-				domainList = JSON.parse(domainList)
-			} catch (error) {
-				throw new BizError(t('notJsonDomain'));
-			}
-		}
+      if (!settingRow) {
+        throw new BizError('数据库未初始化 Database not initialized.');
+      }
 
-		if (!c.env.domain) {
-			throw new BizError(t('noDomainVariable'));
-		}
+      try {
+        settingRow.resendTokens = JSON.parse(settingRow.resendTokens || '{}');
+      } catch (e) {
+        settingRow.resendTokens = {};
+      }
 
-		domainList = domainList.map(item => '@' + item);
-		setting.domainList = domainList;
+      cachedSetting = settingRow;
+    }
 
+    let domainList = c.env.domain;
 
-		let linuxdoSwitch = c.env.linuxdo_switch;
-		let projectLink = c.env.project_link;
+    if (typeof domainList === 'string') {
+      try {
+        domainList = JSON.parse(domainList)
+      } catch (error) {
+        throw new BizError(t('notJsonDomain'));
+      }
+    }
 
-		if (typeof linuxdoSwitch === 'string' && linuxdoSwitch === 'true') {
-			linuxdoSwitch = true
-		} else if (linuxdoSwitch === true) {
-			linuxdoSwitch = true
-		} else {
-			linuxdoSwitch = false
-		}
+    if (!c.env.domain) {
+      throw new BizError(t('noDomainVariable'));
+    }
 
-		console.log(projectLink)
+    domainList = domainList.map(item => '@' + item);
+    cachedSetting.domainList = domainList;
 
-		if (typeof projectLink === 'string' && projectLink === 'false') {
-			projectLink = false
-		} else if (projectLink === false) {
-			projectLink = false
-		} else {
-			projectLink = true
-		}
+    let linuxdoSwitch = c.env.linuxdo_switch;
+    let projectLink = c.env.project_link;
 
-		setting.projectLink = projectLink;
+    if (typeof linuxdoSwitch === 'string' && linuxdoSwitch === 'true') {
+      linuxdoSwitch = true
+    } else if (linuxdoSwitch === true) {
+      linuxdoSwitch = true
+    } else {
+      linuxdoSwitch = false
+    }
 
-		setting.linuxdoClientId = c.env.linuxdo_client_id;
-		setting.linuxdoCallbackUrl = c.env.linuxdo_callback_url;
-		setting.linuxdoSwitch = linuxdoSwitch;
+    if (typeof projectLink === 'string' && projectLink === 'false') {
+      projectLink = false
+    } else if (projectLink === false) {
+      projectLink = false
+    } else {
+      projectLink = true
+    }
 
-		setting.emailPrefixFilter = setting.emailPrefixFilter.split(",").filter(Boolean);
+    cachedSetting.projectLink = projectLink;
+    cachedSetting.linuxdoClientId = c.env.linuxdo_client_id;
+    cachedSetting.linuxdoCallbackUrl = c.env.linuxdo_callback_url;
+    cachedSetting.linuxdoSwitch = linuxdoSwitch;
+    cachedSetting.emailPrefixFilter = (cachedSetting.emailPrefixFilter || '').split(",").filter(Boolean);
 
-		c.set?.('setting', setting);
-		return setting;
-	},
+    c.set?.('setting', cachedSetting);
+    return cachedSetting;
+  },
 
-	async get(c, showSiteKey = false) {
+  async get(c, showSiteKey = false) {
+    const [settingRow, recordList] = await Promise.all([
+      await this.query(c),
+      verifyRecordService.selectListByIP(c)
+    ]);
 
-		const [settingRow, recordList] = await Promise.all([
-			await this.query(c),
-			verifyRecordService.selectListByIP(c)
-		]);
+    if (!showSiteKey) {
+      settingRow.siteKey = settingRow.siteKey ? `${settingRow.siteKey.slice(0, 6)}******` : null;
+    }
 
+    settingRow.secretKey = settingRow.secretKey ? `${settingRow.secretKey.slice(0, 6)}******` : null;
 
-		if (!showSiteKey) {
-			settingRow.siteKey = settingRow.siteKey ? `${settingRow.siteKey.slice(0, 6)}******` : null;
-		}
+    Object.keys(settingRow.resendTokens).forEach(key => {
+      settingRow.resendTokens[key] = `${settingRow.resendTokens[key].slice(0, 12)}******`;
+    });
 
-		settingRow.secretKey = settingRow.secretKey ? `${settingRow.secretKey.slice(0, 6)}******` : null;
+    settingRow.s3AccessKey = settingRow.s3AccessKey ? `${settingRow.s3AccessKey.slice(0, 12)}******` : null;
+    settingRow.s3SecretKey = settingRow.s3SecretKey ? `${settingRow.s3SecretKey.slice(0, 12)}******` : null;
+    settingRow.hasR2 = !!c.env.r2
 
-		Object.keys(settingRow.resendTokens).forEach(key => {
-			settingRow.resendTokens[key] = `${settingRow.resendTokens[key].slice(0, 12)}******`;
-		});
+    let regVerifyOpen = false
+    let addVerifyOpen = false
 
-		settingRow.s3AccessKey = settingRow.s3AccessKey ? `${settingRow.s3AccessKey.slice(0, 12)}******` : null;
-		settingRow.s3SecretKey = settingRow.s3SecretKey ? `${settingRow.s3SecretKey.slice(0, 12)}******` : null;
-		settingRow.hasR2 = !!c.env.r2
+    recordList.forEach(row => {
+      if (row.type === verifyRecordType.REG) {
+        regVerifyOpen = row.count >= settingRow.regVerifyCount
+      }
+      if (row.type === verifyRecordType.ADD) {
+        addVerifyOpen = row.count >= settingRow.addVerifyCount
+      }
+    })
 
-		let regVerifyOpen = false
-		let addVerifyOpen = false
+    settingRow.regVerifyOpen = regVerifyOpen
+    settingRow.addVerifyOpen = addVerifyOpen
 
-		recordList.forEach(row => {
-			if (row.type === verifyRecordType.REG) {
-				regVerifyOpen = row.count >= settingRow.regVerifyCount
-			}
-			if (row.type === verifyRecordType.ADD) {
-				addVerifyOpen = row.count >= settingRow.addVerifyCount
-			}
-		})
+    settingRow.storageType = await r2Service.storageType(c);
 
-		settingRow.regVerifyOpen = regVerifyOpen
-		settingRow.addVerifyOpen = addVerifyOpen
+    return settingRow;
+  },
 
-		settingRow.storageType = await r2Service.storageType(c);
+  async set(c, params) {
+    const settingData = await this.query(c);
+    let resendTokens = { ...settingData.resendTokens, ...params.resendTokens };
+    Object.keys(resendTokens).forEach(domain => {
+      if (!resendTokens[domain]) delete resendTokens[domain];
+    });
 
-		return settingRow;
-	},
+    if (Array.isArray(params.emailPrefixFilter)) {
+      params.emailPrefixFilter = params.emailPrefixFilter + '';
+    }
 
-	async set(c, params) {
-		const settingData = await this.query(c);
-		let resendTokens = { ...settingData.resendTokens, ...params.resendTokens };
-		Object.keys(resendTokens).forEach(domain => {
-			if (!resendTokens[domain]) delete resendTokens[domain];
-		});
+    params.resendTokens = JSON.stringify(resendTokens);
+    await orm(c).update(setting).set({ ...params }).returning().get();
+    await this.refresh(c);
+  },
 
-		if (Array.isArray(params.emailPrefixFilter)) {
-			params.emailPrefixFilter = params.emailPrefixFilter + '';
-		}
+  async deleteBackground(c) {
+    const { background } = await this.query(c);
+    if (!background) return
 
-		params.resendTokens = JSON.stringify(resendTokens);
-		await orm(c).update(setting).set({ ...params }).returning().get();
-		await this.refresh(c);
-	},
+    if (background.startsWith('http')) {
+      await orm(c).update(setting).set({ background: '' }).run();
+      await this.refresh(c)
+      return;
+    }
 
-	async deleteBackground(c) {
+    if (background) {
+      await r2Service.delete(c,background)
+      await orm(c).update(setting).set({ background: '' }).run();
+      await this.refresh(c)
+    }
+  },
 
-		const { background } = await this.query(c);
-		if (!background) return
+  async setBackground(c, params) {
+    let { background } = params
 
-		if (background.startsWith('http')) {
-			await orm(c).update(setting).set({ background: '' }).run();
-			await this.refresh(c)
-			return;
-		}
+    await this.deleteBackground(c);
 
-		if (background) {
-			await r2Service.delete(c,background)
-			await orm(c).update(setting).set({ background: '' }).run();
-			await this.refresh(c)
-		}
-	},
+    if (background && !background.startsWith('http')) {
+      const file = fileUtils.base64ToFile(background)
 
-	async setBackground(c, params) {
+      const arrayBuffer = await file.arrayBuffer();
+      background = constant.BACKGROUND_PREFIX + await fileUtils.getBuffHash(arrayBuffer) + fileUtils.getExtFileName(file.name);
 
-		let { background } = params
+      await r2Service.putObj(c, background, arrayBuffer, {
+        contentType: file.type,
+        cacheControl: `public, max-age=31536000, immutable`,
+        contentDisposition: `inline; filename="${file.name}"`
+      });
+    }
 
-		await this.deleteBackground(c);
+    await orm(c).update(setting).set({ background }).run();
+    await this.refresh(c);
+    return background;
+  },
 
-		if (background && !background.startsWith('http')) {
+  async websiteConfig(c) {
+    const settingRow = await this.get(c, true);
 
-			const file = fileUtils.base64ToFile(background)
-
-			const arrayBuffer = await file.arrayBuffer();
-			background = constant.BACKGROUND_PREFIX + await fileUtils.getBuffHash(arrayBuffer) + fileUtils.getExtFileName(file.name);
-
-
-			await r2Service.putObj(c, background, arrayBuffer, {
-				contentType: file.type,
-				cacheControl: `public, max-age=31536000, immutable`,
-				contentDisposition: `inline; filename="${file.name}"`
-			});
-
-		}
-
-		await orm(c).update(setting).set({ background }).run();
-		await this.refresh(c);
-		return background;
-	},
-
-	async websiteConfig(c) {
-
-		const settingRow = await this.get(c, true);
-
-		return {
-			register: settingRow.register,
-			title: settingRow.title,
-			manyEmail: settingRow.manyEmail,
-			addEmail: settingRow.addEmail,
-			autoRefresh: settingRow.autoRefresh,
-			addEmailVerify: settingRow.addEmailVerify,
-			registerVerify: settingRow.registerVerify,
-			send: settingRow.send,
-			r2Domain: settingRow.r2Domain,
-			siteKey: settingRow.siteKey,
-			background: settingRow.background,
-			loginOpacity: settingRow.loginOpacity,
-			domainList: settingRow.domainList,
-			regKey: settingRow.regKey,
-			regVerifyOpen: settingRow.regVerifyOpen,
-			addVerifyOpen: settingRow.addVerifyOpen,
-			noticeTitle: settingRow.noticeTitle,
-			noticeContent: settingRow.noticeContent,
-			noticeType: settingRow.noticeType,
-			noticeDuration: settingRow.noticeDuration,
-			noticePosition: settingRow.noticePosition,
-			noticeWidth: settingRow.noticeWidth,
-			noticeOffset: settingRow.noticeOffset,
-			notice: settingRow.notice,
-			loginDomain: settingRow.loginDomain,
-			linuxdoClientId: settingRow.linuxdoClientId,
-			linuxdoCallbackUrl: settingRow.linuxdoCallbackUrl,
-			linuxdoSwitch: settingRow.linuxdoSwitch,
-			minEmailPrefix: settingRow.minEmailPrefix,
-			projectLink: settingRow.projectLink
-		};
-	}
+    return {
+      register: settingRow.register,
+      title: settingRow.title,
+      manyEmail: settingRow.manyEmail,
+      addEmail: settingRow.addEmail,
+      autoRefresh: settingRow.autoRefresh,
+      addEmailVerify: settingRow.addEmailVerify,
+      registerVerify: settingRow.registerVerify,
+      send: settingRow.send,
+      r2Domain: settingRow.r2Domain,
+      siteKey: settingRow.siteKey,
+      background: settingRow.background,
+      loginOpacity: settingRow.loginOpacity,
+      domainList: settingRow.domainList,
+      regKey: settingRow.regKey,
+      regVerifyOpen: settingRow.regVerifyOpen,
+      addVerifyOpen: settingRow.addVerifyOpen,
+      noticeTitle: settingRow.noticeTitle,
+      noticeContent: settingRow.noticeContent,
+      noticeType: settingRow.noticeType,
+      noticeDuration: settingRow.noticeDuration,
+      noticePosition: settingRow.noticePosition,
+      noticeWidth: settingRow.noticeWidth,
+      noticeOffset: settingRow.noticeOffset,
+      notice: settingRow.notice,
+      loginDomain: settingRow.loginDomain,
+      linuxdoClientId: settingRow.linuxdoClientId,
+      linuxdoCallbackUrl: settingRow.linuxdoCallbackUrl,
+      linuxdoSwitch: settingRow.linuxdoSwitch,
+      minEmailPrefix: settingRow.minEmailPrefix,
+      projectLink: settingRow.projectLink
+    };
+  }
 };
 
 export default settingService;
